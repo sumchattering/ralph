@@ -17,6 +17,36 @@ PRD_PATH="$1"
 PROGRESS_FILE="progress.txt"
 MAX_ITERATIONS=${2:-100}
 
+# Setup logging
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOGS_DIR="${SCRIPT_DIR}/logs"
+mkdir -p "$LOGS_DIR"
+
+# Generate session timestamp
+SESSION_TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+
+# Try to extract branch name from PRD for more descriptive log names
+BRANCH_NAME=$(grep -o '"branch"[[:space:]]*:[[:space:]]*"[^"]*"' "$PRD_PATH" 2>/dev/null | sed 's/.*"branch"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' | head -1)
+if [ -n "$BRANCH_NAME" ]; then
+  # Replace slashes with underscores for safe filename
+  SAFE_BRANCH_NAME=$(echo "$BRANCH_NAME" | tr '/' '_')
+  SESSION_LOG="${LOGS_DIR}/${SESSION_TIMESTAMP}_${SAFE_BRANCH_NAME}.log"
+else
+  SESSION_LOG="${LOGS_DIR}/${SESSION_TIMESTAMP}_session.log"
+fi
+
+echo "Session log: $SESSION_LOG"
+
+# Log session header
+{
+  echo "========================================"
+  echo "Ralph Session Started: $(date)"
+  echo "PRD: $PRD_PATH"
+  echo "Max Iterations: $MAX_ITERATIONS"
+  echo "========================================"
+  echo ""
+} >> "$SESSION_LOG"
+
 echo "Maximum number of ralph iterations: $MAX_ITERATIONS"
 echo "Progress file: $PROGRESS_FILE"
 echo "PRD path: $PRD_PATH"
@@ -94,10 +124,16 @@ checkout_branch() {
 # Checkout branch in main repo
 checkout_branch "." "$BRANCH"
 
-# Checkout branch in all submodules
+# Get the ralph submodule path relative to repo root (to skip it from submodule operations)
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && git rev-parse --show-toplevel)"
+RALPH_SUBMODULE_PATH="${SCRIPT_DIR#$REPO_ROOT/}"
+
+# Checkout branch in all submodules (except ralph itself)
 for submodule in $(git submodule foreach --quiet 'echo $sm_path'); do
-  if [ -n "$submodule" ]; then
+  if [ -n "$submodule" ] && [ "$submodule" != "$RALPH_SUBMODULE_PATH" ]; then
     checkout_branch "$submodule" "$BRANCH"
+  elif [ "$submodule" = "$RALPH_SUBMODULE_PATH" ]; then
+    echo "[$submodule] Skipping ralph repository"
   fi
 done
 
@@ -110,6 +146,14 @@ while [ $i -le $MAX_ITERATIONS ]; do
   echo "Iteration $i"
   echo "========================================"
   echo "Running claude command..."
+
+  # Log iteration header
+  {
+    echo ""
+    echo "========================================"
+    echo "Iteration $i - $(date)"
+    echo "========================================"
+  } >> "$SESSION_LOG"
 
   claude --dangerously-skip-permissions -p "@${PRD_PATH} @${PROGRESS_FILE} \
 This is a monorepo with subprojects: test-backend (Cloudflare Workers) and test-mobile (React Native). \
@@ -140,12 +184,20 @@ Use this to leave a note for the next person working in the codebase. \
 8. Make a git commit of that feature from the root directory using the suggested commit message. \
 ONLY WORK ON A SINGLE FEATURE. \
 If, while implementing the feature, you notice the PRD is complete (all tasks pass), output <promise>COMPLETE</promise>. \
-" 2>&1 | tee "$TEMP_OUTPUT"
+" 2>&1 | tee "$TEMP_OUTPUT" | tee -a "$SESSION_LOG"
 
   if grep -q "<promise>COMPLETE</promise>" "$TEMP_OUTPUT"; then
     echo "========================================"
     echo "PRD complete after $i iterations!"
     echo "========================================"
+    {
+      echo ""
+      echo "========================================"
+      echo "Session Complete: $(date)"
+      echo "PRD completed after $i iterations"
+      echo "========================================"
+    } >> "$SESSION_LOG"
+    echo "Session log saved to: $SESSION_LOG"
     exit 0
   fi
 
@@ -155,4 +207,12 @@ done
 echo "========================================"
 echo "Reached maximum iterations ($MAX_ITERATIONS)"
 echo "========================================"
+{
+  echo ""
+  echo "========================================"
+  echo "Session Ended: $(date)"
+  echo "Reached maximum iterations ($MAX_ITERATIONS)"
+  echo "========================================"
+} >> "$SESSION_LOG"
+echo "Session log saved to: $SESSION_LOG"
 exit 0

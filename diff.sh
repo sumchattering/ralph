@@ -4,6 +4,9 @@ set -e
 # Script to gather diffs from a feature branch (extracted from PRD) to master
 # and copy to clipboard with a summary
 
+# Get the ralph script directory (to skip it from submodule operations)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 if [ -z "$1" ]; then
   echo "Usage: $0 <path-to-prd.json>"
   echo "Example: $0 PRD-1-infrastructure.json"
@@ -118,15 +121,21 @@ get_repo_diff() {
     popd > /dev/null
 }
 
+# Get ralph submodule path to skip it
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && git rev-parse --show-toplevel)"
+RALPH_SUBMODULE_PATH="${SCRIPT_DIR#$REPO_ROOT/}"
+
 # Process main repo
 echo -e "${BLUE}Processing repositories...${NC}"
 echo ""
 get_repo_diff "." "test-app (root)"
 
-# Process submodules
+# Process submodules (except ralph itself)
 for submodule in $(git submodule foreach --quiet 'echo $sm_path'); do
-    if [ -n "$submodule" ] && [ -d "$submodule" ]; then
+    if [ -n "$submodule" ] && [ -d "$submodule" ] && [ "$submodule" != "$RALPH_SUBMODULE_PATH" ]; then
         get_repo_diff "$submodule" "$submodule"
+    elif [ "$submodule" = "$RALPH_SUBMODULE_PATH" ]; then
+        echo -e "  ${YELLOW}⚠️  Skipping ralph repository${NC}"
     fi
 done
 

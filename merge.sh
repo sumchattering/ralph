@@ -3,6 +3,9 @@ set -e
 
 # Script to merge a feature branch (from PRD) into the ralph branch
 
+# Get the ralph script directory (to skip it from submodule operations)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 if [ -z "$1" ]; then
   echo "Usage: $0 <path-to-prd.json>"
   echo "Example: $0 PRD-1-infrastructure.json"
@@ -80,12 +83,18 @@ merge_branch() {
     popd > /dev/null
 }
 
-# Process submodules first
+# Get ralph submodule path to skip it
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && git rev-parse --show-toplevel)"
+RALPH_SUBMODULE_PATH="${SCRIPT_DIR#$REPO_ROOT/}"
+
+# Process submodules first (except ralph itself)
 echo -e "${BLUE}Processing submodules first...${NC}"
 echo ""
 for submodule in $(git submodule foreach --quiet 'echo $sm_path'); do
-    if [ -n "$submodule" ] && [ -d "$submodule" ]; then
+    if [ -n "$submodule" ] && [ -d "$submodule" ] && [ "$submodule" != "$RALPH_SUBMODULE_PATH" ]; then
         merge_branch "$submodule" "$submodule"
+    elif [ "$submodule" = "$RALPH_SUBMODULE_PATH" ]; then
+        echo -e "  ${YELLOW}⚠️  Skipping ralph repository${NC}"
     fi
 done
 

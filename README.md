@@ -37,7 +37,9 @@ The spec is your source of truth. When Claude works through tasks, it can refere
 
 ### 3. Sequential Execution
 
-Run PRDs in order, merging each completed phase before starting the next:
+First add this repository as a git submodule to your project.
+
+Then run PRDs in order, merging each completed phase before starting the next:
 
 ```bash
 # Work through Phase 1
@@ -78,7 +80,7 @@ The main automation script. It reads a PRD JSON file and iteratively invokes Cla
 
 ### diff.sh
 
-Gathers diffs between a feature branch (specified in the PRD) and master, then copies them to the clipboard in a formatted markdown document. Useful for code review or sharing changes.
+Gathers diffs between a feature branch (specified in the PRD) and master, then copies them to the clipboard in a formatted markdown document. Useful for code review or sharing changes. You can paste the whole diff in gemini or another tool to review. This is useful because although we are doing small reviews at the end of each commit we need a large context review also. In the future I want to automate that with codex.
 
 **Usage:**
 ```bash
@@ -87,7 +89,7 @@ Gathers diffs between a feature branch (specified in the PRD) and master, then c
 
 ### merge.sh
 
-Merges a completed feature branch into the `ralph` integration branch across all submodules and the main repo. Automatically deletes the merged feature branch.
+Merges a completed feature branch into the `ralph` integration branch across all submodules and the main repo. Automatically deletes the merged feature branch. Note. The choice of branch name as ralph is temporary and i will make that configurable at some point.
 
 **Usage:**
 ```bash

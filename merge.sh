@@ -6,27 +6,87 @@ set -e
 # Get the ralph script directory (to skip it from submodule operations)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -z "$1" ]; then
-  echo "Usage: $0 <path-to-prd.json>"
-  echo "Example: $0 PRD-1-infrastructure.json"
-  exit 1
-fi
+# Parse command line arguments
+PRD_PATH=""
+USE_CURRENT_BRANCH=false
+BRANCH_NAME=""
 
-PRD_PATH="$1"
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --help|-h)
+      echo "Usage: $0 [OPTIONS] [path-to-prd.json]"
+      echo ""
+      echo "Merge a feature branch (from PRD) into the ralph branch"
+      echo ""
+      echo "OPTIONS:"
+      echo "  --branch <name>         Use specified branch name"
+      echo "  --use-current-branch    Use current branch without prompting"
+      echo "  --help, -h              Show this help message"
+      echo ""
+      echo "If no PRD is provided, you will be prompted to use the current branch."
+      echo ""
+      echo "Example: $0 PRD-1-infrastructure.json"
+      echo "Example: $0 --branch feature/my-feature"
+      echo "Example: $0 --use-current-branch"
+      exit 0
+      ;;
+    --branch)
+      BRANCH_NAME="$2"
+      shift 2
+      ;;
+    --use-current-branch)
+      USE_CURRENT_BRANCH=true
+      shift
+      ;;
+    *)
+      if [ -z "$PRD_PATH" ]; then
+        PRD_PATH="$1"
+      else
+        echo "ERROR: Multiple PRD paths provided"
+        echo "Use --help for usage information"
+        exit 1
+      fi
+      shift
+      ;;
+  esac
+done
+
 RALPH_BRANCH="ralph"
+FEATURE_BRANCH=""
 
-# Check if PRD file exists
-if [ ! -f "$PRD_PATH" ]; then
-  echo "ERROR: PRD file not found: $PRD_PATH"
-  exit 1
+# If --branch is set, use that branch directly
+if [ -n "$BRANCH_NAME" ]; then
+  FEATURE_BRANCH="$BRANCH_NAME"
+# If --use-current-branch is set, use current branch directly
+elif [ "$USE_CURRENT_BRANCH" = true ]; then
+  FEATURE_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+# If PRD path is provided, extract branch from it
+elif [ -n "$PRD_PATH" ]; then
+  # Check if PRD file exists
+  if [ ! -f "$PRD_PATH" ]; then
+    echo "ERROR: PRD file not found: $PRD_PATH"
+    exit 1
+  fi
+
+  # Extract branch name from PRD JSON
+  FEATURE_BRANCH=$(grep -o '"branch"[[:space:]]*:[[:space:]]*"[^"]*"' "$PRD_PATH" | sed 's/.*"branch"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+  if [ -z "$FEATURE_BRANCH" ]; then
+    echo "ERROR: No branch field found in PRD file"
+    exit 1
+  fi
 fi
 
-# Extract branch name from PRD JSON
-FEATURE_BRANCH=$(grep -o '"branch"[[:space:]]*:[[:space:]]*"[^"]*"' "$PRD_PATH" | sed 's/.*"branch"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-
+# If no branch found, ask user if they want to use current branch
 if [ -z "$FEATURE_BRANCH" ]; then
-  echo "ERROR: No branch field found in PRD file"
-  exit 1
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  echo -n "No PRD provided. Use current branch '${CURRENT_BRANCH}'? [Y/n] "
+  read -r response
+  if [[ "$response" =~ ^[Nn]$ ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+  FEATURE_BRANCH="$CURRENT_BRANCH"
 fi
 
 # Colors for output

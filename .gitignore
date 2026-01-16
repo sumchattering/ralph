@@ -1,0 +1,5 @@
+# Session logs
+logs/
+
+# Temporary files
+*.tmp

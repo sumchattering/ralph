@@ -1,0 +1,84 @@
+{
+  "project": "My App",
+  "phase": "1-user-auth",
+  "branch": "feature/phase-1-user-auth",
+  "description": "Basic user authentication with login and registration",
+  "created": "2025-01-15",
+  "total_tasks": 4,
+  "generalInstructions": [
+    "Follow existing codebase patterns and conventions",
+    "Consult the spec document in /docs/spec.md for detailed requirements",
+    "Run tests after each implementation"
+  ],
+  "userStories": [
+    {
+      "id": "AUTH-001",
+      "category": "backend",
+      "title": "Create users table with auth fields",
+      "priority": 1,
+      "complexity": "low",
+      "dependencies": [],
+      "technical_notes": "Create users table with id, email, password_hash, created_at, updated_at. Use bcrypt for password hashing.",
+      "acceptance_criteria": [
+        "Users table created with proper schema",
+        "Migration runs successfully",
+        "Indexes on email column"
+      ],
+      "existing_implementation": "No users table exists. This is NEW.",
+      "passes": false,
+      "typecheck_passes": false
+    },
+    {
+      "id": "AUTH-002",
+      "category": "backend",
+      "title": "Implement registration endpoint",
+      "priority": 1,
+      "complexity": "medium",
+      "dependencies": ["AUTH-001"],
+      "technical_notes": "POST /api/register - validate email format, check for existing user, hash password, create user, return JWT.",
+      "acceptance_criteria": [
+        "Endpoint validates email and password",
+        "Returns 409 if email exists",
+        "Returns JWT token on success",
+        "Password is properly hashed"
+      ],
+      "existing_implementation": "No auth endpoints exist.",
+      "passes": false,
+      "typecheck_passes": false
+    },
+    {
+      "id": "AUTH-003",
+      "category": "backend",
+      "title": "Implement login endpoint",
+      "priority": 1,
+      "complexity": "medium",
+      "dependencies": ["AUTH-001"],
+      "technical_notes": "POST /api/login - validate credentials, return JWT on success.",
+      "acceptance_criteria": [
+        "Endpoint validates email and password",
+        "Returns 401 for invalid credentials",
+        "Returns JWT token on success"
+      ],
+      "existing_implementation": "No auth endpoints exist.",
+      "passes": false,
+      "typecheck_passes": false
+    },
+    {
+      "id": "AUTH-004",
+      "category": "backend",
+      "title": "Add auth middleware for protected routes",
+      "priority": 2,
+      "complexity": "low",
+      "dependencies": ["AUTH-002"],
+      "technical_notes": "Create middleware that validates JWT from Authorization header and attaches user to request context.",
+      "acceptance_criteria": [
+        "Middleware validates JWT signature",
+        "Returns 401 for missing/invalid token",
+        "Attaches user object to request context"
+      ],
+      "existing_implementation": "No auth middleware exists.",
+      "passes": false,
+      "typecheck_passes": false
+    }
+  ]
+}

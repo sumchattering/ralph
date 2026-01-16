@@ -7,13 +7,47 @@ set -e
 # Get the ralph script directory (to skip it from submodule operations)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -z "$1" ]; then
-  echo "Usage: $0 <path-to-prd.json>"
-  echo "Example: $0 PRD-1-infrastructure.json"
+# Parse command line arguments
+VERBOSE=false
+PRD_PATH=""
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --help|-h)
+      echo "Usage: $0 [OPTIONS] <path-to-prd.json>"
+      echo ""
+      echo "Gather diffs from a feature branch (extracted from PRD) to master"
+      echo "and copy to clipboard with a summary"
+      echo ""
+      echo "OPTIONS:"
+      echo "  --verbose, -v    Print list of changed files to console"
+      echo "  --help, -h       Show this help message"
+      echo ""
+      echo "Example: $0 --verbose PRD-1-infrastructure.json"
+      exit 0
+      ;;
+    --verbose|-v)
+      VERBOSE=true
+      shift
+      ;;
+    *)
+      if [ -z "$PRD_PATH" ]; then
+        PRD_PATH="$1"
+      else
+        echo "ERROR: Multiple PRD paths provided"
+        echo "Use --help for usage information"
+        exit 1
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$PRD_PATH" ]; then
+  echo "ERROR: PRD path is required"
+  echo "Use --help for usage information"
   exit 1
 fi
-
-PRD_PATH="$1"
 BASE_BRANCH="master"
 
 # Check if PRD file exists
@@ -46,6 +80,7 @@ echo ""
 
 # Collect stats
 declare -a REPO_STATS
+declare -a EXCLUDED_FILES
 TOTAL_FILES=0
 TOTAL_INSERTIONS=0
 TOTAL_DELETIONS=0
@@ -94,6 +129,49 @@ get_repo_diff() {
     local stats
     stats=$(git diff --stat "${BASE_BRANCH}...${FEATURE_BRANCH}" 2>/dev/null || git diff --stat "origin/${BASE_BRANCH}...origin/${FEATURE_BRANCH}" 2>/dev/null || echo "")
 
+    # Separate JSON files from other files
+    local json_files non_json_files
+    json_files=$(echo "$stats" | sed '$d' | grep '\.json[[:space:]]*|' || echo "")
+    non_json_files=$(echo "$stats" | sed '$d' | grep -v '\.json[[:space:]]*|' || echo "")
+
+    # Add JSON files to excluded list if any exist
+    if [ -n "$json_files" ]; then
+        while IFS= read -r line; do
+            if [ -n "$line" ]; then
+                EXCLUDED_FILES+=("${repo_name}: ${line}")
+            fi
+        done <<< "$json_files"
+    fi
+
+    # Recreate stats excluding JSON files
+    if [ -n "$non_json_files" ]; then
+        # Get the summary line from the original stats
+        local summary_line
+        summary_line=$(echo "$stats" | tail -1)
+
+        # Count non-JSON files
+        local non_json_count
+        non_json_count=$(echo "$non_json_files" | grep -c '^' || echo "0")
+
+        if [ "$non_json_count" -gt 0 ]; then
+            # Recalculate insertions and deletions from non-JSON files only
+            local filtered_insertions filtered_deletions
+            filtered_insertions=$(echo "$non_json_files" | awk -F'|' '{gsub(/[-+]/, "", $2); sum += $2} END {print sum+0}' || echo "0")
+            filtered_deletions=$(echo "$non_json_files" | awk -F'|' '{
+                split($2, parts, "-")
+                if (length(parts) > 1) {
+                    sum += parts[2]
+                }
+            } END {print sum+0}' || echo "0")
+
+            # Update summary line to reflect filtered counts
+            summary_line="${non_json_count} files changed, ${filtered_insertions} insertions(+), ${filtered_deletions} deletions(-)"
+            stats="${non_json_files}\n${summary_line}"
+        else
+            stats="${summary_line}"
+        fi
+    fi
+
     # Parse stats from last line (e.g., "10 files changed, 200 insertions(+), 50 deletions(-)")
     local files_changed insertions deletions
     files_changed=$(echo "$stats" | tail -1 | grep -oE '[0-9]+ files? changed' | grep -oE '[0-9]+' || echo "0")
@@ -110,6 +188,19 @@ get_repo_diff() {
 
     # Print to console
     echo -e "  ${GREEN}✓${NC} ${repo_name}: ${files_changed} files, +${insertions}/-${deletions}"
+
+    # Print file list if verbose
+    if [ "$VERBOSE" = true ] && [ "$files_changed" -gt 0 ]; then
+        echo -e "    ${BLUE}Files changed:${NC}"
+        # Get list of changed files with their change stats (excluding the summary line)
+        local file_list
+        file_list=$(echo "$stats" | sed '$d')
+        if [ -n "$file_list" ]; then
+            echo "$file_list" | while IFS= read -r line; do
+                echo -e "    ${line}"
+            done
+        fi
+    fi
 
     # Add to output
     OUTPUT+="\n## ${repo_name}\n\n"
@@ -153,6 +244,28 @@ SUMMARY+="|------------|-------|------------|----------|\n"
 SUMMARY+="| **Total** | **${TOTAL_FILES}** | **+${TOTAL_INSERTIONS}** | **-${TOTAL_DELETIONS}** |\n"
 
 OUTPUT+="${SUMMARY}"
+
+# Add excluded files section if verbose and there are excluded files
+if [ "$VERBOSE" = true ] && [ ${#EXCLUDED_FILES[@]} -gt 0 ]; then
+    OUTPUT+="\n## Excluded Files (JSON)\n\n"
+    OUTPUT+="The following JSON files were excluded from the diff:\n\n"
+    for excluded_file in "${EXCLUDED_FILES[@]}"; do
+        OUTPUT+="\`\`\`\n${excluded_file}\n\`\`\`\n"
+    done
+
+    # Also print to console
+    echo ""
+    echo -e "${YELLOW}======================================${NC}"
+    echo -e "${YELLOW}  Excluded Files (JSON)${NC}"
+    echo -e "${YELLOW}======================================${NC}"
+    echo ""
+    echo "The following JSON files were excluded from the diff:"
+    echo ""
+    for excluded_file in "${EXCLUDED_FILES[@]}"; do
+        echo -e "  ${excluded_file}"
+    done
+    echo ""
+fi
 
 # Copy to clipboard
 echo -e "$OUTPUT" | pbcopy

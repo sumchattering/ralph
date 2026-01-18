@@ -3,3 +3,6 @@ logs/
 
 # Temporary files
 *.tmp
+
+# Python virtual environment for token counting
+.venv/

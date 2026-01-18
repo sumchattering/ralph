@@ -12,6 +12,7 @@ VERBOSE=false
 PRD_PATH=""
 USE_CURRENT_BRANCH=false
 BRANCH_NAME=""
+declare -a EXCLUDE_PATTERNS
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -25,13 +26,17 @@ while [[ $# -gt 0 ]]; do
       echo "  --verbose, -v           Print list of changed files to console"
       echo "  --branch <name>         Use specified branch name"
       echo "  --use-current-branch    Use current branch without prompting"
+      echo "  --exclude <path>        Exclude file(s) matching path (can be used multiple times)"
       echo "  --help, -h              Show this help message"
+      echo ""
+      echo "DEFAULT EXCLUSIONS: scripts/, *.json"
       echo ""
       echo "If no PRD is provided, you will be prompted to use the current branch."
       echo ""
       echo "Example: $0 --verbose PRD-1-infrastructure.json"
       echo "Example: $0 --branch feature/my-feature"
       echo "Example: $0 --use-current-branch"
+      echo "Example: $0 --exclude package-lock.json --exclude yarn.lock"
       exit 0
       ;;
     --verbose|-v)
@@ -45,6 +50,10 @@ while [[ $# -gt 0 ]]; do
     --use-current-branch)
       USE_CURRENT_BRANCH=true
       shift
+      ;;
+    --exclude)
+      EXCLUDE_PATTERNS+=("$2")
+      shift 2
       ;;
     *)
       if [ -z "$PRD_PATH" ]; then
@@ -111,9 +120,14 @@ echo -e "PRD: ${YELLOW}${PRD_PATH}${NC}"
 echo -e "Comparing: ${YELLOW}${BASE_BRANCH}${NC} → ${YELLOW}${FEATURE_BRANCH}${NC}"
 echo ""
 
+# Default patterns to always exclude (in addition to user-specified ones)
+DEFAULT_EXCLUDE_PATTERNS=("scripts/" "*.json")
+
+# Merge default excludes with user-specified excludes
+ALL_EXCLUDE_PATTERNS=("${DEFAULT_EXCLUDE_PATTERNS[@]}" "${EXCLUDE_PATTERNS[@]}")
+
 # Collect stats
 declare -a REPO_STATS
-declare -a EXCLUDED_FILES
 TOTAL_FILES=0
 TOTAL_INSERTIONS=0
 TOTAL_DELETIONS=0
@@ -148,9 +162,19 @@ get_repo_diff() {
         return
     fi
 
+    # Build exclude arguments for git diff (includes default + user-specified patterns)
+    local exclude_args=""
+    for pattern in "${ALL_EXCLUDE_PATTERNS[@]}"; do
+        exclude_args+=" ':!${pattern}'"
+    done
+
     # Get the diff (base...feature shows what's in feature that's not in base)
     local diff_output
-    diff_output=$(git diff "${BASE_BRANCH}...${FEATURE_BRANCH}" 2>/dev/null || git diff "origin/${BASE_BRANCH}...origin/${FEATURE_BRANCH}" 2>/dev/null || echo "")
+    if [ -n "$exclude_args" ]; then
+        diff_output=$(eval "git diff '${BASE_BRANCH}...${FEATURE_BRANCH}' -- . ${exclude_args}" 2>/dev/null || eval "git diff 'origin/${BASE_BRANCH}...origin/${FEATURE_BRANCH}' -- . ${exclude_args}" 2>/dev/null || echo "")
+    else
+        diff_output=$(git diff "${BASE_BRANCH}...${FEATURE_BRANCH}" 2>/dev/null || git diff "origin/${BASE_BRANCH}...origin/${FEATURE_BRANCH}" 2>/dev/null || echo "")
+    fi
 
     if [ -z "$diff_output" ]; then
         echo -e "  ${YELLOW}⚠️  No diff found for ${repo_name}${NC}"
@@ -160,49 +184,10 @@ get_repo_diff() {
 
     # Get stats
     local stats
-    stats=$(git diff --stat "${BASE_BRANCH}...${FEATURE_BRANCH}" 2>/dev/null || git diff --stat "origin/${BASE_BRANCH}...origin/${FEATURE_BRANCH}" 2>/dev/null || echo "")
-
-    # Separate JSON files from other files
-    local json_files non_json_files
-    json_files=$(echo "$stats" | sed '$d' | grep '\.json[[:space:]]*|' || echo "")
-    non_json_files=$(echo "$stats" | sed '$d' | grep -v '\.json[[:space:]]*|' || echo "")
-
-    # Add JSON files to excluded list if any exist
-    if [ -n "$json_files" ]; then
-        while IFS= read -r line; do
-            if [ -n "$line" ]; then
-                EXCLUDED_FILES+=("${repo_name}: ${line}")
-            fi
-        done <<< "$json_files"
-    fi
-
-    # Recreate stats excluding JSON files
-    if [ -n "$non_json_files" ]; then
-        # Get the summary line from the original stats
-        local summary_line
-        summary_line=$(echo "$stats" | tail -1)
-
-        # Count non-JSON files
-        local non_json_count
-        non_json_count=$(echo "$non_json_files" | grep -c '^' || echo "0")
-
-        if [ "$non_json_count" -gt 0 ]; then
-            # Recalculate insertions and deletions from non-JSON files only
-            local filtered_insertions filtered_deletions
-            filtered_insertions=$(echo "$non_json_files" | awk -F'|' '{gsub(/[-+]/, "", $2); sum += $2} END {print sum+0}' || echo "0")
-            filtered_deletions=$(echo "$non_json_files" | awk -F'|' '{
-                split($2, parts, "-")
-                if (length(parts) > 1) {
-                    sum += parts[2]
-                }
-            } END {print sum+0}' || echo "0")
-
-            # Update summary line to reflect filtered counts
-            summary_line="${non_json_count} files changed, ${filtered_insertions} insertions(+), ${filtered_deletions} deletions(-)"
-            stats="${non_json_files}\n${summary_line}"
-        else
-            stats="${summary_line}"
-        fi
+    if [ -n "$exclude_args" ]; then
+        stats=$(eval "git diff --stat '${BASE_BRANCH}...${FEATURE_BRANCH}' -- . ${exclude_args}" 2>/dev/null || eval "git diff --stat 'origin/${BASE_BRANCH}...origin/${FEATURE_BRANCH}' -- . ${exclude_args}" 2>/dev/null || echo "")
+    else
+        stats=$(git diff --stat "${BASE_BRANCH}...${FEATURE_BRANCH}" 2>/dev/null || git diff --stat "origin/${BASE_BRANCH}...origin/${FEATURE_BRANCH}" 2>/dev/null || echo "")
     fi
 
     # Parse stats from last line (e.g., "10 files changed, 200 insertions(+), 50 deletions(-)")
@@ -278,26 +263,22 @@ SUMMARY+="| **Total** | **${TOTAL_FILES}** | **+${TOTAL_INSERTIONS}** | **-${TOT
 
 OUTPUT+="${SUMMARY}"
 
-# Add excluded files section if verbose and there are excluded files
-if [ "$VERBOSE" = true ] && [ ${#EXCLUDED_FILES[@]} -gt 0 ]; then
-    OUTPUT+="\n## Excluded Files (JSON)\n\n"
-    OUTPUT+="The following JSON files were excluded from the diff:\n\n"
-    for excluded_file in "${EXCLUDED_FILES[@]}"; do
-        OUTPUT+="\`\`\`\n${excluded_file}\n\`\`\`\n"
-    done
+# Add excluded patterns section to output
+OUTPUT+="\n## Excluded Patterns\n\n"
+OUTPUT+="**Default exclusions:** "
+for i in "${!DEFAULT_EXCLUDE_PATTERNS[@]}"; do
+    if [ $i -gt 0 ]; then OUTPUT+=", "; fi
+    OUTPUT+="\`${DEFAULT_EXCLUDE_PATTERNS[$i]}\`"
+done
+OUTPUT+="\n"
 
-    # Also print to console
-    echo ""
-    echo -e "${YELLOW}======================================${NC}"
-    echo -e "${YELLOW}  Excluded Files (JSON)${NC}"
-    echo -e "${YELLOW}======================================${NC}"
-    echo ""
-    echo "The following JSON files were excluded from the diff:"
-    echo ""
-    for excluded_file in "${EXCLUDED_FILES[@]}"; do
-        echo -e "  ${excluded_file}"
+if [ ${#EXCLUDE_PATTERNS[@]} -gt 0 ]; then
+    OUTPUT+="**User exclusions (--exclude):** "
+    for i in "${!EXCLUDE_PATTERNS[@]}"; do
+        if [ $i -gt 0 ]; then OUTPUT+=", "; fi
+        OUTPUT+="\`${EXCLUDE_PATTERNS[$i]}\`"
     done
-    echo ""
+    OUTPUT+="\n"
 fi
 
 # Copy to clipboard
@@ -324,7 +305,52 @@ echo ""
 echo -e "${GREEN}✅ Diff copied to clipboard!${NC}"
 echo ""
 
-# Estimate tokens (rough: ~4 chars per token)
+# Count tokens accurately using tiktoken
 OUTPUT_LEN=${#OUTPUT}
-ESTIMATED_TOKENS=$((OUTPUT_LEN / 4))
-echo -e "📊 Output size: ${OUTPUT_LEN} characters (~${ESTIMATED_TOKENS} tokens)"
+
+# Setup virtual environment for token counting
+VENV_DIR="${SCRIPT_DIR}/.venv"
+PYTHON_SCRIPT="${SCRIPT_DIR}/count_tokens.py"
+
+# Function to setup venv and count tokens
+count_tokens_accurate() {
+    local text="$1"
+
+    # Check if Python 3 is available
+    if ! command -v python3 &> /dev/null; then
+        echo "⚠️  Python 3 not found, using rough estimate"
+        echo $((${#text} / 4))
+        return
+    fi
+
+    # Create virtual environment if it doesn't exist
+    if [ ! -d "$VENV_DIR" ]; then
+        echo -e "${BLUE}Setting up token counting environment...${NC}"
+        python3 -m venv "$VENV_DIR" 2>/dev/null
+        if [ $? -ne 0 ]; then
+            echo "⚠️  Failed to create virtual environment, using rough estimate"
+            echo $((${#text} / 4))
+            return
+        fi
+    fi
+
+    # Install tiktoken if not already installed
+    if ! "$VENV_DIR/bin/python" -c "import tiktoken" 2>/dev/null; then
+        echo -e "${BLUE}Installing tiktoken...${NC}"
+        "$VENV_DIR/bin/pip" install --quiet tiktoken 2>/dev/null
+        if [ $? -ne 0 ]; then
+            echo "⚠️  Failed to install tiktoken, using rough estimate"
+            echo $((${#text} / 4))
+            return
+        fi
+    fi
+
+    # Count tokens using the Python script
+    echo -e "$text" | "$VENV_DIR/bin/python" "$PYTHON_SCRIPT" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo $((${#text} / 4))
+    fi
+}
+
+TOKEN_COUNT=$(count_tokens_accurate "$OUTPUT")
+echo -e "📊 Output size: ${OUTPUT_LEN} characters (${TOKEN_COUNT} tokens - cl100k_base/GPT-4)"

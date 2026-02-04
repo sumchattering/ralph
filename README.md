@@ -75,8 +75,9 @@ When given multiple PRDs, it processes them sequentially — completing all task
 **Options:**
 | Flag | Description |
 |------|-------------|
-| `--max-iterations N` | Max iterations per PRD (default: 100) |
-| `--auto-merge` | Auto-merge each PRD's branch after completion (runs merge.sh) |
+| `--max-iterations N` | Max iterations per PRD (default: task count + 5) |
+| `--auto-merge` | Force auto-merge (default for multiple PRDs) |
+| `--no-auto-merge` | Disable auto-merge between PRDs |
 | `--yes, -y` | Skip confirmation prompt |
 | `--help, -h` | Show help |
 

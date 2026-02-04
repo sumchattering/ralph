@@ -39,27 +39,24 @@ The spec is your source of truth. When Claude works through tasks, it can refere
 
 First add this repository as a git submodule to your project.
 
-Then run PRDs in order, merging each completed phase before starting the next:
+Then run PRDs in order. You can either run them one at a time with manual review, or batch them:
 
 ```bash
-# Work through Phase 1
+# Option A: Manual review between PRDs
 ./ralph.sh PRD-1-database.json
-
-# Review changes
 ./diff.sh PRD-1-database.json
-
-# Merge when satisfied
 ./merge.sh PRD-1-database.json
-
-# Continue to Phase 2
 ./ralph.sh PRD-2-auth.json
+
+# Option B: Batch all PRDs with auto-merge (hands-off)
+./ralph.sh --auto-merge PRD-1-database.json PRD-2-auth.json PRD-3-api.json
 ```
 
 ## Scripts
 
 ### ralph.sh
 
-The main automation script. It reads a PRD JSON file and iteratively invokes Claude to:
+The main automation script. It reads one or more PRD JSON files and iteratively invokes Claude to:
 
 1. Find the highest-priority incomplete task
 2. Navigate to the correct subproject
@@ -68,14 +65,60 @@ The main automation script. It reads a PRD JSON file and iteratively invokes Cla
 5. Perform code review via a subagent
 6. Commit the changes
 
+When given multiple PRDs, it processes them sequentially — completing all tasks in one PRD before moving to the next. If a usage/rate limit is hit, it shuts down gracefully and reports which PRDs remain.
+
 **Usage:**
 ```bash
-./ralph.sh <path-to-prd.json> [max-iterations]
+./ralph.sh [OPTIONS] <prd1> [prd2] ...
 ```
 
-**Example:**
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `--max-iterations N` | Max iterations per PRD (default: 100) |
+| `--auto-merge` | Auto-merge each PRD's branch after completion (runs merge.sh) |
+| `--yes, -y` | Skip confirmation prompt |
+| `--help, -h` | Show help |
+
+**Exit codes:**
+| Code | Meaning |
+|------|---------|
+| 0 | All PRDs completed successfully |
+| 1 | General error |
+| 2 | Usage/rate limit reached — graceful shutdown |
+| 3 | Max iterations exceeded — PRD failed to complete |
+
+**Examples:**
 ```bash
+# Single PRD (backward compatible)
 ./ralph.sh PRD-1-infrastructure.json 50
+
+# Multiple PRDs, processed in order
+./ralph.sh PRD-1-db.json PRD-2-auth.json PRD-3-api.json
+
+# Multiple PRDs with auto-merge between each
+./ralph.sh --auto-merge --max-iterations 30 PRD-*.json
+```
+
+When given a glob like `PRD-*.json`, ralph shows a status overview, filters out completed PRDs, presents the execution plan, and waits for confirmation before starting.
+
+### filter-prds.js
+
+Standalone PRD status and filtering tool. Used internally by `ralph.sh` and can be run independently.
+
+**Usage:**
+```bash
+# Show status overview of all PRDs
+./filter-prds.js ./prds/PRD-*.json
+
+# Get only pending (incomplete) PRD file paths
+./filter-prds.js --pending ./prds/PRD-*.json
+
+# Get only completed PRD file paths
+./filter-prds.js --completed ./prds/PRD-*.json
+
+# JSON output
+./filter-prds.js --json ./prds/PRD-*.json
 ```
 
 ### diff.sh
@@ -144,9 +187,10 @@ See `sample-prd.json` for a complete example. Key fields:
 ## Requirements
 
 - [Claude CLI](https://github.com/anthropics/claude-code) (`claude` command)
+- Node.js (for `filter-prds.js`)
 - `jq` for JSON parsing
 - `git` for version control
-- macOS (uses `pbcopy` for clipboard)
+- macOS (uses `pbcopy` for clipboard in `diff.sh`)
 
 ## Example Workflow
 

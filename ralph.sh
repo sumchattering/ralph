@@ -10,7 +10,7 @@ usage() {
   echo "Already-completed PRDs are filtered out automatically."
   echo ""
   echo "OPTIONS:"
-  echo "  --max-iterations N    Maximum iterations per PRD (default: task count + 5)"
+  echo "  --max-iterations N    Maximum iterations per PRD (default: task count × 3)"
   echo "  --auto-merge          Force auto-merge (default for multiple PRDs)"
   echo "  --no-auto-merge       Disable auto-merge between PRDs"
   echo "  --yes, -y             Skip confirmation prompt"
@@ -246,7 +246,7 @@ for prd_idx in "${!PRD_PATHS[@]}"; do
   if [ -n "$MAX_ITERATIONS" ]; then
     prd_limit=$MAX_ITERATIONS
   else
-    prd_limit=$((total + 5))
+    prd_limit=$((total * 3))
   fi
   echo "  $((prd_idx + 1)). $(basename "$prd" .json) — $remaining tasks remaining ($done_count/$total done, max $prd_limit iterations)"
 done
@@ -254,7 +254,7 @@ echo ""
 if [ -n "$MAX_ITERATIONS" ]; then
   echo "Max iterations per PRD: $MAX_ITERATIONS (override)"
 else
-  echo "Max iterations per PRD: auto (task count + 5)"
+  echo "Max iterations per PRD: auto (task count × 3)"
 fi
 if [ "$AUTO_MERGE" = true ] && [ $TOTAL_PRDS -gt 1 ]; then
   echo "Auto-merge: enabled (each PRD's branch will be merged before starting the next)"
@@ -291,7 +291,7 @@ trap "rm -f $TEMP_OUTPUT" EXIT
   for prd in "${PRD_PATHS[@]}"; do
     echo "  - $prd"
   done
-  echo "Max Iterations per PRD: ${MAX_ITERATIONS:-auto (tasks + 5)}"
+  echo "Max Iterations per PRD: ${MAX_ITERATIONS:-auto (tasks × 3)}"
   echo "Auto-merge: $AUTO_MERGE"
   echo "========================================"
   echo ""
@@ -344,7 +344,7 @@ for prd_idx in "${!PRD_PATHS[@]}"; do
     PRD_MAX_ITERATIONS=$MAX_ITERATIONS
   else
     TASK_COUNT=$(jq '.userStories | length' "$PRD_PATH")
-    PRD_MAX_ITERATIONS=$((TASK_COUNT + 5))
+    PRD_MAX_ITERATIONS=$((TASK_COUNT * 3))
   fi
   echo "Max iterations for this PRD: $PRD_MAX_ITERATIONS"
 
@@ -394,8 +394,8 @@ Use this to leave a note for the next person working in the codebase. \
    c. If the review finds blocking issues, fix them immediately and re-run the review. \
    d. Only proceed to commit once the review returns LGTM or no blocking issues. \
 8. Make a git commit of that feature from the root directory using the suggested commit message. \
-ONLY WORK ON A SINGLE FEATURE. \
-If, while implementing the feature, you notice the PRD is complete (all tasks pass), output <promise>COMPLETE</promise>. \
+ONLY WORK ON A SINGLE FEATURE PER ITERATION. \
+After completing your task, the script will automatically check if all tasks in the PRD are complete. \
 " 2>&1 | tee "$TEMP_OUTPUT" | tee -a "$SESSION_LOG"
     CLAUDE_EXIT=${PIPESTATUS[0]}
     set -e
@@ -405,28 +405,15 @@ If, while implementing the feature, you notice the PRD is complete (all tasks pa
       graceful_shutdown "$PRD_PATH" "$PRD_NUM" "$i"
     fi
 
-    # Check for PRD completion signal from Claude
-    if grep -q "<promise>COMPLETE</promise>" "$TEMP_OUTPUT"; then
+    # Check PRD completion status via JSON (authoritative source)
+    if check_all_complete "$PRD_PATH"; then
       echo "========================================"
-      echo "PRD $PRD_NUM/$TOTAL_PRDS complete after $i iterations!"
+      echo "✅ PRD $PRD_NUM/$TOTAL_PRDS COMPLETE after $i iterations!"
+      echo "All tasks have passes=true and typecheck_passes=true"
       echo "========================================"
       {
         echo ""
         echo "PRD $PRD_NUM/$TOTAL_PRDS complete after $i iterations"
-        echo "Time: $(date)"
-      } >> "$SESSION_LOG"
-      PRD_DONE=true
-      break
-    fi
-
-    # Also check completion via jq in case Claude forgot the marker
-    if check_all_complete "$PRD_PATH"; then
-      echo "========================================"
-      echo "PRD $PRD_NUM/$TOTAL_PRDS complete after $i iterations (detected via task status)!"
-      echo "========================================"
-      {
-        echo ""
-        echo "PRD $PRD_NUM/$TOTAL_PRDS complete after $i iterations (detected via task status)"
         echo "Time: $(date)"
       } >> "$SESSION_LOG"
       PRD_DONE=true

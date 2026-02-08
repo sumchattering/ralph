@@ -52,9 +52,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 FLAGS=()
 PATHS=()
-# Commands that take a value argument
-QUERY_COMMANDS=(--show --search --deps --phase --category --priority --complexity)
-HAS_QUERY_CMD=false
 
 show_help() {
   # Extract help from this script's header comments
@@ -70,15 +67,11 @@ while [ $i -lt ${#args[@]} ]; do
     --help|-h)
       show_help
       ;;
-    --status|--list|--json|--completed|--pending)
+    --status|--list|--json|--completed|--pending|--task-completed|--task-pending)
       FLAGS+=("$arg")
-      if [[ "$arg" == "--status" || "$arg" == "--list" ]]; then
-        HAS_QUERY_CMD=true
-      fi
       ;;
     --show|--search|--deps|--phase|--category|--priority|--complexity)
       FLAGS+=("$arg")
-      HAS_QUERY_CMD=true
       # Next arg is the value for this flag
       i=$((i + 1))
       if [ $i -lt ${#args[@]} ]; then
@@ -152,13 +145,7 @@ if [ ${#PRD_FILES[@]} -eq 0 ]; then
 fi
 
 # ============================================================================
-# Delegate to the right tool
+# Delegate to prd-query.js (single source of truth for all PRD operations)
 # ============================================================================
 
-if [ "$HAS_QUERY_CMD" = true ]; then
-  # Rich query commands → prd-query.js
-  exec node "$SCRIPT_DIR/prd-query.js" ${FLAGS[@]+"${FLAGS[@]}"} -- "${PRD_FILES[@]}"
-else
-  # Default status view → filter-prds.js (PRD-level progress bars)
-  exec node "$SCRIPT_DIR/filter-prds.js" ${FLAGS[@]+"${FLAGS[@]}"} "${PRD_FILES[@]}"
-fi
+exec node "$SCRIPT_DIR/prd-query.js" ${FLAGS[@]+"${FLAGS[@]}"} -- "${PRD_FILES[@]}"

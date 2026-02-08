@@ -125,6 +125,7 @@ echo -e "  ${BLUE}Running Ralph...${NC}"
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
   --yes \
+  --skip-git \
   --no-auto-merge \
   "$TEST_DIR/PRD-1-test.json" > /dev/null 2>&1 || true
 echo -e "  ${BLUE}Done.${NC}"
@@ -161,6 +162,7 @@ echo -e "  ${BLUE}Running Ralph...${NC}"
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
   --yes \
+  --skip-git \
   --no-auto-merge \
   "$TEST_DIR/PRD-2-zero.json" > /dev/null 2>&1
 EXIT_CODE=$?
@@ -210,6 +212,7 @@ echo -e "  ${BLUE}Running Ralph...${NC}"
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
   --yes \
+  --skip-git \
   --no-auto-merge \
   "$TEST_DIR/PRD-3-complete.json" > /dev/null 2>&1
 EXIT_CODE=$?
@@ -224,14 +227,14 @@ assert_json_equals "$TEST_DIR/PRD-3-complete.json" \
 echo ""
 
 # ============================================================================
-# Test 4: filter-prds.js with mixed PRDs
+# Test 4: prd-query.js with mixed PRDs
 # ============================================================================
-echo -e "${YELLOW}Test 4: filter-prds.js filtering${NC}"
-echo -e "  ${BLUE}Testing:${NC} filter-prds.js correctly identifies pending vs completed PRDs"
+echo -e "${YELLOW}Test 4: prd-query.js filtering${NC}"
+echo -e "  ${BLUE}Testing:${NC} prd-query.js correctly identifies pending vs completed PRDs"
 echo -e "  ${BLUE}Verifies:${NC} --pending and --completed filters work, zero-task PRDs marked complete"
 
 # Test --pending filter
-PENDING=$("$SCRIPT_DIR/filter-prds.js" --pending --json \
+PENDING=$("$SCRIPT_DIR/prd-query.js" --pending --json -- \
   "$TEST_DIR/PRD-1-test.json" \
   "$TEST_DIR/PRD-2-zero.json" \
   "$TEST_DIR/PRD-3-complete.json" 2>/dev/null || echo "[]")
@@ -248,7 +251,7 @@ else
 fi
 
 # Test --completed filter
-COMPLETED=$("$SCRIPT_DIR/filter-prds.js" --completed --json \
+COMPLETED=$("$SCRIPT_DIR/prd-query.js" --completed --json -- \
   "$TEST_DIR/PRD-1-test.json" \
   "$TEST_DIR/PRD-3-complete.json" 2>/dev/null || echo "[]")
 COMPLETED_COUNT=$(echo "$COMPLETED" | jq 'length')
@@ -310,6 +313,7 @@ echo -e "  ${BLUE}Running Ralph...${NC}"
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
   --yes \
+  --skip-git \
   --no-auto-merge \
   "$TEST_DIR/PRD-5-fail.json" > /dev/null 2>&1 || true
 

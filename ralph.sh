@@ -14,6 +14,7 @@ usage() {
   echo "  --auto-merge          Force auto-merge (default for multiple PRDs)"
   echo "  --no-auto-merge       Disable auto-merge between PRDs"
   echo "  --yes, -y             Skip confirmation prompt"
+  echo "  --skip-git            Skip all git operations (for testing)"
   echo "  --help, -h            Show this help message"
   echo ""
   echo "EXAMPLES:"
@@ -33,6 +34,7 @@ usage() {
 MAX_ITERATIONS=""
 AUTO_MERGE=""
 AUTO_CONFIRM=false
+SKIP_GIT=false
 PRD_PATHS=()
 
 # Backward compatibility: ./ralph.sh prd.json 50
@@ -56,6 +58,10 @@ else
         ;;
       --yes|-y)
         AUTO_CONFIRM=true
+        shift
+        ;;
+      --skip-git)
+        SKIP_GIT=true
         shift
         ;;
       --help|-h)
@@ -87,7 +93,7 @@ if ! command -v jq &> /dev/null; then
   exit 1
 fi
 
-# Script directory (needed early for filter-prds.js)
+# Script directory (needed early for prd-query.js)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Helper Functions ---
@@ -269,15 +275,15 @@ for prd in "${PRD_PATHS[@]}"; do
   fi
 done
 
-# --- Filter PRDs using filter-prds.js ---
+# --- Filter PRDs using prd-query.js ---
 
 # Show status overview of all input PRDs
-node "$SCRIPT_DIR/filter-prds.js" "${PRD_PATHS[@]}"
+node "$SCRIPT_DIR/prd-query.js" -- "${PRD_PATHS[@]}"
 
 # Get only pending (incomplete) PRD paths
 ORIGINAL_PRD_COUNT=${#PRD_PATHS[@]}
 set +e
-PENDING_OUTPUT=$(node "$SCRIPT_DIR/filter-prds.js" --pending "${PRD_PATHS[@]}" 2>/dev/null)
+PENDING_OUTPUT=$(node "$SCRIPT_DIR/prd-query.js" --pending -- "${PRD_PATHS[@]}" 2>/dev/null)
 FILTER_EXIT=$?
 set -e
 
@@ -441,7 +447,12 @@ for prd_idx in "${!PRD_PATHS[@]}"; do
   # Extract and checkout branch
   BRANCH=$(grep -o '"branch"[[:space:]]*:[[:space:]]*"[^"]*"' "$PRD_PATH" | sed 's/.*"branch"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
   echo "Feature branch: $BRANCH"
-  checkout_all "$BRANCH"
+
+  if [ "$SKIP_GIT" != true ]; then
+    checkout_all "$BRANCH"
+  else
+    echo "(Skipping git operations for testing)"
+  fi
 
   # Calculate max iterations for this PRD
   if [ -n "$MAX_ITERATIONS" ]; then
@@ -591,7 +602,7 @@ After completing your task, the script will automatically check if all tasks in 
     COMPLETED_PRDS=$((COMPLETED_PRDS + 1))
 
     # Auto-merge if enabled and there are more PRDs to process
-    if [ "$AUTO_MERGE" = true ] && [ $PRD_NUM -lt $TOTAL_PRDS ]; then
+    if [ "$AUTO_MERGE" = true ] && [ $PRD_NUM -lt $TOTAL_PRDS ] && [ "$SKIP_GIT" != true ]; then
       echo "----------------------------------------"
       echo "Auto-merging branch: $BRANCH"
       echo "----------------------------------------"
@@ -675,7 +686,7 @@ if [ $SKIPPED_PRDS_COUNT -gt 0 ]; then
 fi
 
 # Show final status of processed PRDs
-node "$SCRIPT_DIR/filter-prds.js" "${PRD_PATHS[@]}"
+node "$SCRIPT_DIR/prd-query.js" -- "${PRD_PATHS[@]}"
 
 {
   echo ""

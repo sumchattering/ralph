@@ -180,6 +180,24 @@ echo ""
 echo -e "${BLUE}Processing main repository...${NC}"
 merge_branch "." "test-app (root)"
 
+# Commit any remaining uncommitted changes in all submodules
+echo ""
+echo -e "${BLUE}Checking for uncommitted changes in all submodules...${NC}"
+for submodule in $(git submodule foreach --quiet 'echo $sm_path'); do
+    if [ -n "$submodule" ] && [ -d "$submodule" ]; then
+        pushd "$submodule" > /dev/null
+        if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+            echo -e "  ${YELLOW}Found uncommitted changes in ${submodule}, committing...${NC}"
+            git add -A
+            git commit -m "chore: Auto-commit changes after merge to ralph
+
+Post-merge cleanup for ${FEATURE_BRANCH} → ${RALPH_BRANCH}"
+            echo -e "  ${GREEN}✓${NC} Changes committed in ${submodule}"
+        fi
+        popd > /dev/null
+    fi
+done
+
 # Commit submodule pointer updates in main repo
 echo ""
 echo -e "${BLUE}Committing submodule pointer updates in main repo...${NC}"

@@ -28,7 +28,7 @@ function loadPRD(filePath) {
     const content = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     const stories = content.userStories || [];
     const total = stories.length;
-    const completed = stories.filter(s => s.passes === true && s.typecheck_passes === true).length;
+    const completed = stories.filter(s => s.passes && s.typecheck_passes).length;
     const phaseMatch = path.basename(filePath).match(/PRD-(\d+)/);
     const phaseNum = phaseMatch ? parseInt(phaseMatch[1]) : 0;
 

@@ -92,17 +92,91 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Helper Functions ---
 
+# Attempt to repair malformed JSON using Claude sonnet subagent
+repair_prd_json() {
+  local prd_file="$1"
+  local backup_file="${prd_file}.backup.$(date +%s)"
+
+  echo "WARNING: PRD file appears to be malformed JSON"
+  echo "Creating backup: $backup_file"
+  cp "$prd_file" "$backup_file"
+
+  echo "Attempting to repair JSON using Claude sonnet subagent..."
+
+  # Use Claude with Task tool to spawn sonnet subagent for JSON repair
+  claude -p "Use the Task tool with model='sonnet' and subagent_type='general-purpose' to spawn a JSON repair subagent.
+
+Pass this prompt to the subagent:
+
+'The following JSON file is malformed: $prd_file
+
+Your task:
+1. Read the file
+2. Fix any JSON syntax errors (missing brackets, quotes, commas, etc.)
+3. Preserve ALL existing data - do not delete or modify any task data
+4. Preserve all task completion states (passes, typecheck_passes fields)
+5. Write the repaired JSON back to the same file
+
+If the file is too corrupted to repair, respond with ERROR and explain why.'" 2>&1
+
+  # Check if repair worked
+  if jq empty "$prd_file" 2>/dev/null; then
+    echo "✓ JSON successfully repaired"
+    echo "Backup saved to: $backup_file"
+    return 0
+  else
+    echo "✗ JSON repair failed"
+    echo "Restoring from backup..."
+    cp "$backup_file" "$prd_file"
+    return 1
+  fi
+}
+
 # Check if all tasks in a PRD are complete (used for runtime checks in main loop)
 check_all_complete() {
   local prd_file="$1"
-  local total_tasks=$(jq '.userStories | length' "$prd_file")
-  local completed_tasks=$(jq '[.userStories[] | select(.passes == true and .typecheck_passes == true)] | length' "$prd_file")
 
-  if [ "$total_tasks" -eq "$completed_tasks" ] && [ "$total_tasks" -gt 0 ]; then
-    return 0
-  else
+  # Validate JSON first - attempt repair if malformed
+  if ! jq empty "$prd_file" 2>/dev/null; then
+    echo "ERROR: PRD file is not valid JSON: $prd_file" >&2
+
+    # Attempt automatic repair
+    if repair_prd_json "$prd_file"; then
+      echo "JSON repaired successfully, continuing..."
+    else
+      echo "CRITICAL: Could not repair JSON automatically" >&2
+      echo "Manual intervention required" >&2
+      return 1
+    fi
+  fi
+
+  # Get counts
+  local total_tasks=$(jq '.userStories | length' "$prd_file" 2>/dev/null)
+  local completed_tasks=$(jq '[.userStories[] | select(.passes == true and .typecheck_passes == true)] | length' "$prd_file" 2>/dev/null)
+
+  # Validate numeric output
+  if ! [[ "$total_tasks" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: Invalid task count in PRD: total_tasks='$total_tasks'" >&2
     return 1
   fi
+
+  if ! [[ "$completed_tasks" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: Invalid completed count in PRD: completed_tasks='$completed_tasks'" >&2
+    return 1
+  fi
+
+  # Handle empty PRDs
+  if [ "$total_tasks" -eq 0 ]; then
+    echo "WARNING: PRD has 0 tasks, treating as complete" >&2
+    return 0
+  fi
+
+  # Check completion
+  if [ "$total_tasks" -eq "$completed_tasks" ]; then
+    return 0
+  fi
+
+  return 1
 }
 
 # Checkout or create branch in a repo
@@ -137,7 +211,9 @@ checkout_all() {
 # Check if Claude CLI output indicates a usage/rate limit error
 check_usage_limit() {
   local output_file="$1"
-  if grep -qiE "(rate.?limit|usage.?limit|overloaded_error|out of.*(credits|usage)|exceeded.*(limit|quota)|too many requests|billing.*(limit|issue)|credit.*(exhaust|remain)|token.*limit.*reached|max.*usage|account.*limit|plan.*limit)" "$output_file"; then
+  # More specific patterns to avoid false positives
+  # Match actual Claude API errors, not narrative text
+  if grep -qiE "(\brate.?limit\b|\bquota.?exceeded\b|\boverloaded\b|\btoo.?many.?requests\b|\bcredit.?exhausted\b|\bapi.?limit\b|\bupgrade.?account\b|\bpayment.?required\b)" "$output_file"; then
     return 0  # Usage limit detected
   fi
   return 1
@@ -279,7 +355,35 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && git rev-parse --show-toplevel)"
 RALPH_SUBMODULE_PATH="${SCRIPT_DIR#$REPO_ROOT/}"
 
 TEMP_OUTPUT=$(mktemp)
-trap "rm -f $TEMP_OUTPUT" EXIT
+
+# Graceful shutdown flag
+GRACEFUL_SHUTDOWN=false
+
+# Cleanup function
+cleanup_temp() {
+  rm -f "$TEMP_OUTPUT" 2>/dev/null || true
+}
+
+# Graceful shutdown handler for Ctrl+C
+handle_interrupt() {
+  echo ""
+  echo "========================================"
+  echo "  Ctrl+C detected!"
+  echo "========================================"
+  echo ""
+  echo "Will stop gracefully after current task completes..."
+  echo "Press Ctrl+C again to force immediate exit."
+  echo ""
+  GRACEFUL_SHUTDOWN=true
+
+  # Second Ctrl+C forces immediate exit
+  trap 'echo "Force exit!"; cleanup_temp; exit 130' INT
+}
+
+# Set up traps
+trap cleanup_temp EXIT
+trap handle_interrupt INT
+trap cleanup_temp TERM
 
 # Log session header
 {
@@ -343,7 +447,25 @@ for prd_idx in "${!PRD_PATHS[@]}"; do
   if [ -n "$MAX_ITERATIONS" ]; then
     PRD_MAX_ITERATIONS=$MAX_ITERATIONS
   else
-    TASK_COUNT=$(jq '.userStories | length' "$PRD_PATH")
+    TASK_COUNT=$(jq '.userStories | length' "$PRD_PATH" 2>/dev/null)
+
+    # Validate task count
+    if ! [[ "$TASK_COUNT" =~ ^[0-9]+$ ]]; then
+      echo "ERROR: Could not determine task count for $PRD_PATH"
+      echo "jq output was: $TASK_COUNT"
+      exit 1
+    fi
+
+    # Handle empty PRDs
+    if [ "$TASK_COUNT" -eq 0 ]; then
+      echo "WARNING: PRD has 0 tasks. Marking as complete and skipping."
+      {
+        echo "PRD $PRD_NUM has 0 tasks - skipped"
+      } >> "$SESSION_LOG"
+      COMPLETED_PRDS=$((COMPLETED_PRDS + 1))
+      continue
+    fi
+
     PRD_MAX_ITERATIONS=$((TASK_COUNT * 3))
   fi
   echo "Max iterations for this PRD: $PRD_MAX_ITERATIONS"
@@ -370,8 +492,12 @@ for prd_idx in "${!PRD_PATHS[@]}"; do
     claude --dangerously-skip-permissions -p "@${PRD_PATH} @${PROGRESS_FILE} \
 This is a monorepo with subprojects: test-backend (Cloudflare Workers) and test-mobile (React Native). \
 Each subproject has its own package.json with typecheck and test scripts. \
-1. Find the highest-priority feature to work on and work only on that feature. \
-This should be the one YOU decide has the highest priority - not necessarily the first in the list. \
+1. Find the next task to work on using these rules IN ORDER: \
+   a. ONLY consider tasks where passes=false or typecheck_passes=false (incomplete tasks) \
+   b. ONLY consider tasks where ALL dependencies are complete (dependencies have passes=true AND typecheck_passes=true) \
+   c. Among eligible tasks, pick the one with the LOWEST priority number (priority 1 is highest) \
+   d. If multiple tasks have the same priority number, pick the first one in the list \
+
 2. IMMEDIATELY append to the ${PROGRESS_FILE} file that you are STARTING work on this task (include task ID and description). \
 3. Navigate to the correct subproject based on the task category (database -> test-backend, mobile -> test-mobile). \
 4. Run npm run build to check types. Run npm run test if tests exist for that subproject. \
@@ -400,6 +526,19 @@ After completing your task, the script will automatically check if all tasks in 
     CLAUDE_EXIT=${PIPESTATUS[0]}
     set -e
 
+    # Check if claude command failed
+    if [ $CLAUDE_EXIT -ne 0 ]; then
+      echo "ERROR: claude command failed with exit code $CLAUDE_EXIT"
+      echo "PRD cannot progress. Stopping iteration loop."
+      {
+        echo ""
+        echo "ERROR: Claude command failed at iteration $i with exit code $CLAUDE_EXIT"
+        echo "Time: $(date)"
+      } >> "$SESSION_LOG"
+      PRD_DONE=false
+      break
+    fi
+
     # Check for usage/rate limit errors
     if check_usage_limit "$TEMP_OUTPUT"; then
       graceful_shutdown "$PRD_PATH" "$PRD_NUM" "$i"
@@ -418,6 +557,31 @@ After completing your task, the script will automatically check if all tasks in 
       } >> "$SESSION_LOG"
       PRD_DONE=true
       break
+    fi
+
+    # Check for graceful shutdown request
+    if [ "$GRACEFUL_SHUTDOWN" = true ]; then
+      echo ""
+      echo "========================================"
+      echo "  Graceful Shutdown Requested"
+      echo "========================================"
+      echo ""
+      echo "Stopping after iteration $i"
+      echo "PRD $PRD_NUM/$TOTAL_PRDS was not completed"
+      echo "Completed iterations: $i / $PRD_MAX_ITERATIONS"
+      echo ""
+      echo "To resume, run ralph again with remaining PRDs:"
+      for ((r=prd_idx; r<TOTAL_PRDS; r++)); do
+        echo "  - ${PRD_PATHS[$r]}"
+      done
+      echo ""
+      {
+        echo ""
+        echo "Graceful shutdown at PRD $PRD_NUM, iteration $i"
+        echo "Time: $(date)"
+      } >> "$SESSION_LOG"
+      echo "Session log saved to: $SESSION_LOG"
+      exit 130
     fi
 
     i=$((i + 1))
@@ -440,11 +604,28 @@ After completing your task, the script will automatically check if all tasks in 
       if "${SCRIPT_DIR}/merge.sh" "$PRD_PATH" 2>&1 | tee -a "$SESSION_LOG"; then
         echo "Merge successful."
       else
-        echo "WARNING: Auto-merge failed for $PRD_PATH. Continuing to next PRD anyway."
-        echo "You may need to merge manually."
+        echo ""
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        echo "  CRITICAL: AUTO-MERGE FAILED"
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        echo ""
+        echo "PRD: $PRD_PATH"
+        echo "Repository is in merge-conflict state. Cannot continue to next PRD."
+        echo ""
+        echo "To resolve:"
+        echo "  1. Run 'git status' in each submodule to see conflicts"
+        echo "  2. Resolve conflicts manually"
+        echo "  3. Run 'git add .' and 'git commit' in each conflicted repo"
+        echo "  4. Re-run Ralph with remaining PRDs"
+        echo ""
         {
-          echo "WARNING: Auto-merge failed for $PRD_PATH"
+          echo ""
+          echo "CRITICAL ERROR: Auto-merge failed for PRD $PRD_NUM: $PRD_PATH"
+          echo "Repository left in conflict state - cannot continue"
+          echo "Time: $(date)"
         } >> "$SESSION_LOG"
+        echo "Session log saved to: $SESSION_LOG"
+        exit 1
       fi
     fi
   else

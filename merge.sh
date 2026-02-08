@@ -119,6 +119,23 @@ merge_branch() {
         return
     fi
 
+    # First, ensure we're on the feature branch and commit any uncommitted changes
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    if [ "$CURRENT_BRANCH" != "$FEATURE_BRANCH" ]; then
+        echo -e "  ${BLUE}Switching to ${FEATURE_BRANCH} in ${repo_name}${NC}"
+        git checkout "$FEATURE_BRANCH"
+    fi
+
+    # Check for uncommitted changes and commit them
+    if ! git diff-index --quiet HEAD --; then
+        echo -e "  ${YELLOW}Found uncommitted changes in ${repo_name}, committing...${NC}"
+        git add -A
+        git commit -m "chore: Auto-commit changes before merge to ralph
+
+Changes made during Ralph automation before merging ${FEATURE_BRANCH} → ${RALPH_BRANCH}"
+        echo -e "  ${GREEN}✓${NC} Changes committed in ${repo_name}"
+    fi
+
     # Check if ralph branch exists, create if not
     if ! git show-ref --verify --quiet "refs/heads/$RALPH_BRANCH"; then
         echo -e "  ${YELLOW}Creating ${RALPH_BRANCH} branch in ${repo_name}${NC}"
@@ -162,6 +179,19 @@ done
 echo ""
 echo -e "${BLUE}Processing main repository...${NC}"
 merge_branch "." "test-app (root)"
+
+# Commit submodule pointer updates in main repo
+echo ""
+echo -e "${BLUE}Committing submodule pointer updates in main repo...${NC}"
+if ! git diff-index --quiet HEAD --; then
+    git add -A
+    git commit -m "chore: Update submodule pointers after merge
+
+Merged ${FEATURE_BRANCH} → ${RALPH_BRANCH} in all submodules"
+    echo -e "${GREEN}✓${NC} Submodule pointers committed"
+else
+    echo -e "${YELLOW}No submodule pointer changes to commit${NC}"
+fi
 
 echo ""
 echo -e "${GREEN}======================================${NC}"

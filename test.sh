@@ -80,6 +80,8 @@ assert_exit_code() {
 # Test 1: Normal completion (3 tasks, should complete all)
 # ============================================================================
 echo -e "${YELLOW}Test 1: Normal PRD completion${NC}"
+echo -e "  ${BLUE}Testing:${NC} Ralph completes all tasks in a PRD with dependencies"
+echo -e "  ${BLUE}Verifies:${NC} Mock Claude marks tasks complete, iteration limit (tasks × 3) works"
 
 cat > "$TEST_DIR/PRD-1-test.json" <<'EOF'
 {
@@ -138,6 +140,8 @@ echo ""
 # Test 2: Zero-task PRD (should skip with no error)
 # ============================================================================
 echo -e "${YELLOW}Test 2: Zero-task PRD${NC}"
+echo -e "  ${BLUE}Testing:${NC} Ralph handles PRDs with 0 tasks gracefully"
+echo -e "  ${BLUE}Verifies:${NC} No errors, PRD marked complete, exits successfully"
 
 cat > "$TEST_DIR/PRD-2-zero.json" <<'EOF'
 {
@@ -167,6 +171,8 @@ echo ""
 # Test 3: Already completed PRD (should skip)
 # ============================================================================
 echo -e "${YELLOW}Test 3: Already completed PRD${NC}"
+echo -e "  ${BLUE}Testing:${NC} Ralph skips PRDs where all tasks already complete"
+echo -e "  ${BLUE}Verifies:${NC} No unnecessary iterations, tasks remain complete, exits successfully"
 
 cat > "$TEST_DIR/PRD-3-complete.json" <<'EOF'
 {
@@ -216,6 +222,8 @@ echo ""
 # Test 4: filter-prds.js with mixed PRDs
 # ============================================================================
 echo -e "${YELLOW}Test 4: filter-prds.js filtering${NC}"
+echo -e "  ${BLUE}Testing:${NC} filter-prds.js correctly identifies pending vs completed PRDs"
+echo -e "  ${BLUE}Verifies:${NC} --pending and --completed filters work, zero-task PRDs marked complete"
 
 # Test --pending filter
 PENDING=$("$SCRIPT_DIR/filter-prds.js" --pending --json \
@@ -253,6 +261,8 @@ echo ""
 # Test 5: Mock Claude exit code handling
 # ============================================================================
 echo -e "${YELLOW}Test 5: Mock Claude failures${NC}"
+echo -e "  ${BLUE}Testing:${NC} Ralph stops iteration when Claude command fails (exit code != 0)"
+echo -e "  ${BLUE}Verifies:${NC} Tasks remain incomplete, no infinite loops, proper error handling"
 
 # Create a failing mock-claude that exits with code 1
 cat > "$MOCK_BIN_DIR/claude" <<'FAILEOF'

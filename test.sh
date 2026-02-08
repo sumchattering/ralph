@@ -120,11 +120,14 @@ cat > "$TEST_DIR/PRD-1-test.json" <<'EOF'
 EOF
 
 # Run Ralph with mock Claude
+echo -e "  ${BLUE}Running Ralph...${NC}"
+echo -e "  ${BLUE}Running Ralph...${NC}"
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
   --yes \
   --no-auto-merge \
   "$TEST_DIR/PRD-1-test.json" > /dev/null 2>&1 || true
+echo -e "  ${BLUE}Done.${NC}"
 
 # Verify all tasks completed
 assert_json_equals "$TEST_DIR/PRD-1-test.json" \
@@ -154,6 +157,7 @@ cat > "$TEST_DIR/PRD-2-zero.json" <<'EOF'
 }
 EOF
 
+echo -e "  ${BLUE}Running Ralph...${NC}"
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
   --yes \
@@ -202,6 +206,7 @@ cat > "$TEST_DIR/PRD-3-complete.json" <<'EOF'
 }
 EOF
 
+echo -e "  ${BLUE}Running Ralph...${NC}"
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
   --yes \
@@ -301,6 +306,7 @@ cat > "$TEST_DIR/PRD-5-fail.json" <<'EOF'
 EOF
 
 # Run Ralph with failing mock Claude
+echo -e "  ${BLUE}Running Ralph...${NC}"
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
   --yes \

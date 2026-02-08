@@ -18,13 +18,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Extract PRD path from prompt (looks for any .json file path)
-PRD_PATH=$(echo "$PROMPT" | grep -oE '[^[:space:]]+\.json' | grep -E 'PRD-[0-9]+' | head -n 1)
+# Extract PRD path from prompt (looks for any .json file path, with or without @ prefix)
+PRD_PATH=$(echo "$PROMPT" | grep -oE '@?[^[:space:]]+\.json' | grep -E 'PRD-[0-9]+' | head -n 1)
 
 # If still not found, try a more lenient pattern
 if [ -z "$PRD_PATH" ]; then
-  PRD_PATH=$(echo "$PROMPT" | grep -oE '/[^[:space:]]+\.json' | head -n 1)
+  PRD_PATH=$(echo "$PROMPT" | grep -oE '@?/[^[:space:]]+\.json' | head -n 1)
 fi
+
+# Strip the @ prefix if present (Claude uses @ for file context)
+PRD_PATH="${PRD_PATH#@}"
 
 if [ -z "$PRD_PATH" ]; then
   echo "Mock Claude: Could not find PRD path in prompt"

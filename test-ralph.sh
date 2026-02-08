@@ -19,16 +19,9 @@ TEST_DIR=$(mktemp -d)
 MOCK_BIN_DIR="$TEST_DIR/bin"
 mkdir -p "$MOCK_BIN_DIR"
 
-# Create wrapper script named "claude" that calls mock-claude.sh
-cat > "$MOCK_BIN_DIR/claude" <<'MOCKEOF'
-#!/usr/bin/env bash
-exec "$(dirname "$0")/../../mock-claude.sh" "$@"
-MOCKEOF
+# Copy mock-claude.sh and name it "claude"
+cp "$SCRIPT_DIR/mock-claude.sh" "$MOCK_BIN_DIR/claude"
 chmod +x "$MOCK_BIN_DIR/claude"
-
-# Copy mock-claude.sh to bin directory too
-cp "$SCRIPT_DIR/mock-claude.sh" "$MOCK_BIN_DIR/"
-chmod +x "$MOCK_BIN_DIR/mock-claude.sh"
 
 trap "rm -rf $TEST_DIR" EXIT
 
@@ -127,6 +120,7 @@ EOF
 # Run Ralph with mock Claude
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
+  --yes \
   --no-auto-merge \
   "$TEST_DIR/PRD-1-test.json" > /dev/null 2>&1 || true
 
@@ -158,6 +152,7 @@ EOF
 
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
+  --yes \
   --no-auto-merge \
   "$TEST_DIR/PRD-2-zero.json" > /dev/null 2>&1
 EXIT_CODE=$?
@@ -203,6 +198,7 @@ EOF
 
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
+  --yes \
   --no-auto-merge \
   "$TEST_DIR/PRD-3-complete.json" > /dev/null 2>&1
 EXIT_CODE=$?
@@ -297,6 +293,7 @@ EOF
 # Run Ralph with failing mock Claude
 cd "$SCRIPT_DIR/../.."
 PATH="$MOCK_BIN_DIR:$PATH" "$SCRIPT_DIR/ralph.sh" \
+  --yes \
   --no-auto-merge \
   "$TEST_DIR/PRD-5-fail.json" > /dev/null 2>&1 || true
 
